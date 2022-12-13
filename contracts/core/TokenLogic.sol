@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 library TokenLogic { 
     using SafeMath for uint256;  
     using TokenLogic for DataTypes.FundingData;
+    event UpdateFundingRate(address token, uint256 fundingRate);
 
     function updateCumulativeFundingRate(DataTypes.FundingData storage _data, 
                                         uint256 fundingInterval, 
@@ -12,7 +13,8 @@ library TokenLogic {
                                         uint256 stableFundingRateFactor,
                                         uint256 fundingRateFactor,
                                         uint256 reservedAmounts,
-                                        bool stableTokens)  internal  {
+                                        bool stableTokens,
+                                        address _token)  internal  {
         if (_data.lastFundingTimes == 0) {
             _data.lastFundingTimes = block.timestamp.div(fundingInterval).mul(fundingInterval);
             return;
@@ -30,6 +32,8 @@ library TokenLogic {
                                                         stableTokens);
         _data.cumulativeFundingRates = _data.cumulativeFundingRates.add(fundingRate);
         _data.lastFundingTimes = block.timestamp.div(fundingInterval).mul(fundingInterval);
+        emit UpdateFundingRate(_token, _data.cumulativeFundingRates);
+
     }
 
     function getNextFundingRate(DataTypes.FundingData storage _data, 

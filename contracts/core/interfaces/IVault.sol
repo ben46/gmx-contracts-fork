@@ -197,7 +197,6 @@ interface IVault{
         int256 realisedPnl
     );
 
-    event UpdateFundingRate(address token, uint256 fundingRate);
     event UpdatePnl(bytes32 key, bool hasProfit, uint256 delta);
 
     event CollectMarginFees(address token, uint256 feeUsd, uint256 feeTokens);

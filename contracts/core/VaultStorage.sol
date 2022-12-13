@@ -31,7 +31,6 @@ contract VaultStorage   {
 
     address internal  usdg;
     address internal  gov;
-    address internal  vaultManager;
 
     mapping (address => mapping (address => bool)) internal  approvedRouters;
     address[] internal  allWhitelistedTokens;
@@ -56,7 +55,7 @@ contract VaultStorage   {
 
     // reservedAmounts tracks the number of tokens reserved for open leverage positions
     //跟踪为未平仓杠杆仓位保留的代币数量
-    mapping (address => uint256) internal  reservedAmounts;
+    mapping (address => uint256) internal  reservedAmounts;//reserveAmounts记录的是开这个仓位的用户，该仓位的总价值兑换成collateral token的数量
 
     // bufferAmounts allows specification of an amount to exclude from swaps
     //允许指定从swaps中排除的金额

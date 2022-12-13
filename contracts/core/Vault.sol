@@ -8,9 +8,10 @@ import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 // import "../libraries/token/SafeERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/StorageSlot.sol";
 
 // import "../libraries/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 import "../tokens/interfaces/IUSDG.sol";
@@ -22,7 +23,20 @@ import "./VaultStorage.sol";
 import "./TokenLogic.sol";
 import "./GenericLogic.sol";
 
-contract Vault is ReentrancyGuard,  VaultStorage, IVault {
+  contract ERC1967 {
+      bytes32 internal constant _IMPLEMENTATION_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+ 
+      function _getImplementation() internal view returns (address) {
+          return StorageSlot.getAddressSlot(_IMPLEMENTATION_SLOT).value;
+      }
+ 
+      function _setImplementation(address newImplementation) internal {
+          require(Address.isContract(newImplementation), "ERC1967: new implementation is not a contract");
+          StorageSlot.getAddressSlot(_IMPLEMENTATION_SLOT).value = newImplementation;
+      }
+  }
+
+contract Vault is ReentrancyGuard,  VaultStorage, IVault, ERC1967 {
     using SafeMath for uint256;  
     using SafeCast for uint256;  
     using SafeMath128 for uint128;
@@ -33,7 +47,8 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault {
     // gov should be set to a timelock contract or a governance contract
     constructor(address _vaultManager)  {
         gov = msg.sender;  
-        vaultManager = _vaultManager ;      
+                _setImplementation(_vaultManager);
+
     }
  
     function getUsdg() override external view returns (address){
@@ -50,7 +65,7 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault {
         ) external override {
         _onlyGov();
         _validate(!slot0.isInitialized, 1);
-        (bool suc,) = vaultManager.delegatecall(msg.data);
+        (bool suc,) = _getImplementation().delegatecall(msg.data);
         require(suc);
     } 
     
@@ -95,7 +110,7 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault {
     function buyUSDG(address _token, address _receiver) external override nonReentrant returns (uint256) {
         _validateManager();
         _validate(addrObjs[_token].whitelistedTokens, 16);
-        (bool suc,) = vaultManager.delegatecall(abi.encodeWithSignature(
+        (bool suc,) = _getImplementation().delegatecall(abi.encodeWithSignature(
             "buyUSDG(address,address,uint256)", 
             _token, 
             _receiver,
@@ -106,12 +121,12 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault {
     function sellUSDG(address _token, address ) external override nonReentrant returns (uint256) {
         _validateManager();
         _validate(addrObjs[_token].whitelistedTokens, 19);
-        (bool success, bytes memory result) = vaultManager.delegatecall(msg.data);
+        (bool success, bytes memory result) = _getImplementation().delegatecall(msg.data);
         require(success);
         return abi.decode(result, (uint256));
     } 
     function swap(address  , address  , address  ) override external returns (uint256){ 
-        (bool success, bytes memory result) = vaultManager.delegatecall(msg.data);
+        (bool success, bytes memory result) = _getImplementation().delegatecall(msg.data);
         require(success);
         return abi.decode(result, (uint256));
     }
@@ -191,7 +206,7 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault {
         _validate(_stableSwapFeeBasisPoints <= MAX_FEE_BASIS_POINTS, 7);
         _validate(_marginFeeBasisPoints <= MAX_FEE_BASIS_POINTS, 8);
         _validate(_liquidationFeeUsd <= MAX_LIQUIDATION_FEE_USD, 9);
-        (bool suc, ) = vaultManager.delegatecall(msg.data);
+        (bool suc, ) = _getImplementation().delegatecall(msg.data);
         require(suc, "swap error"); 
     }
 
@@ -209,23 +224,23 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault {
     }
 
     function setTokenConfig(
-        address _token,
-        uint256 _tokenDecimals,
-        uint256 _tokenWeight,
-        uint256 _minProfitBps,
-        uint256 _maxUsdgAmount,
-        bool _isStable,
-        bool _isShortable
+        address ,
+        uint256 ,
+        uint256 ,
+        uint256 ,
+        uint256 ,
+        bool ,
+        bool 
     ) external override { 
         _onlyGov(); 
-        (bool suc, ) = vaultManager.delegatecall(msg.data);
+        (bool suc, ) = _getImplementation().delegatecall(msg.data);
         require(suc, "swap error"); 
         
     } 
 
     function clearTokenConfig(address ) external {
         _onlyGov(); 
-        (bool suc, ) = vaultManager.delegatecall(msg.data);
+        (bool suc, ) = _getImplementation().delegatecall(msg.data);
         require(suc, "swap error"); 
     } 
    
@@ -240,7 +255,7 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault {
 
     function setUsdgAmount(address , uint256 ) external {
         _onlyGov();
-        (bool suc,) = vaultManager.delegatecall(msg.data);
+        (bool suc,) = _getImplementation().delegatecall(msg.data);
         require(suc);
     }    
 
@@ -365,6 +380,7 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault {
         _validateGasPrice();
         _validateRouter(_account);
         _validateTokens(_collateralToken, _indexToken, _isLong);
+        // 更新全局资金费率
         updateCumulativeFundingRate(_collateralToken); 
 
         bytes32 key = GenericLogic.getPositionKey(_account, _collateralToken, _indexToken, _isLong);
@@ -385,7 +401,7 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault {
         uint256 collateralDeltaUsd = tokenToUsdMin(_collateralToken, collateralDelta);
 
         position.collateral = position.collateral.add(collateralDeltaUsd);
-        _validate(position.collateral >= fee, 29);
+        _validate(position.collateral >= fee, 29);//新仓位的抵押品价值要大于手续费，含资金费
 
         position.collateral = position.collateral.sub(fee);
         position.entryFundingRate = fundingDatas[_collateralToken].cumulativeFundingRates;
@@ -731,8 +747,8 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault {
                                                         slot1.stableFundingRateFactor,
                                                         slot1.fundingRateFactor,
                                                         reservedAmounts[_token],
-                                                        addrObjs[_token].stableTokens); 
-        emit UpdateFundingRate(_token, fundingDatas[_token].cumulativeFundingRates);
+                                                        addrObjs[_token].stableTokens,
+                                                        _token); 
     }
 
     function getNextFundingRate(address _token) public override view returns (uint256) {
@@ -857,7 +873,7 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault {
 
     function _increaseReservedAmount(address _token, uint256 _amount) private {
         reservedAmounts[_token] = reservedAmounts[_token].add(_amount);
-        _validate(reservedAmounts[_token] <= poolAmounts[_token], 52);
+        _validate(reservedAmounts[_token] <= poolAmounts[_token], 52);//新开仓位的最大开仓限制
         emit IncreaseReservedAmount(_token, _amount);
     }
 
@@ -912,7 +928,7 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault {
     }
 
     function getRedemptionAmount(address , uint256 ) public override   returns (uint256) {
-        (bool success, bytes memory result) = vaultManager.delegatecall(msg.data);
+        (bool success, bytes memory result) = _getImplementation().delegatecall(msg.data);
         require(success);
         return abi.decode(result, (uint256));
     } 

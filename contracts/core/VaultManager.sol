@@ -25,7 +25,8 @@ contract VaultManager is ReentrancyGuard, VaultStorage, IVaultManager {
                                                         slot1.stableFundingRateFactor,
                                                         slot1.fundingRateFactor,
                                                         reservedAmounts[_token],
-                                                        addrObjs[_token].stableTokens
+                                                        addrObjs[_token].stableTokens,
+                                                        _token
                                                         );
 
         uint256 price = IVaultPriceFeed(priceFeed).getPrice(_token, false, slot0.includeAmmPrice, true);
@@ -61,7 +62,8 @@ contract VaultManager is ReentrancyGuard, VaultStorage, IVaultManager {
             slot1.stableFundingRateFactor,
             slot1.fundingRateFactor,
             reservedAmounts[_token],
-            addrObjs[_token].stableTokens
+            addrObjs[_token].stableTokens,                                                        _token
+
         );
 
         uint256 redemptionAmount = getRedemptionAmount(_token, usdgAmount);
@@ -106,7 +108,8 @@ contract VaultManager is ReentrancyGuard, VaultStorage, IVaultManager {
             slot1.stableFundingRateFactor,
             slot1.fundingRateFactor,
             reservedAmounts[_tokenIn],
-            addrObjs[_tokenIn].stableTokens
+            addrObjs[_tokenIn].stableTokens,                                                        _tokenIn
+
         );
         fundingDatas[_tokenOut].updateCumulativeFundingRate(
             slot1.fundingInterval,
@@ -114,7 +117,8 @@ contract VaultManager is ReentrancyGuard, VaultStorage, IVaultManager {
             slot1.stableFundingRateFactor,
             slot1.fundingRateFactor,
             reservedAmounts[_tokenOut],
-            addrObjs[_tokenOut].stableTokens
+            addrObjs[_tokenOut].stableTokens,                                                        _tokenOut
+
         ); 
 
         uint256 amountIn = _transferIn(_tokenIn);
