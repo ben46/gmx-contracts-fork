@@ -1,5 +1,5 @@
 pragma solidity ^0.8.12;
-import "./DataTypes.sol";
+import "../DataTypes.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
 library TokenLogic { 

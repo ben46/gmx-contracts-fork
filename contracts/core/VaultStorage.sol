@@ -118,7 +118,7 @@ contract VaultStorage   {
         emit IncreasePoolAmount(_token, _amount);
     } 
     
-    function tokenToUsdMin(address _token, uint256 _tokenAmount) public  view returns (uint256) {
+    function _tokenToUsdMin(address _token, uint256 _tokenAmount) internal  view returns (uint256) {
         if (_tokenAmount == 0) { return 0; }
         uint256 price = IVaultPriceFeed(priceFeed).getPrice(_token, false, slot0.includeAmmPrice, slot1.useSwapPricing);
         uint256 decimals = addrObjs[_token].tokenDecimals;

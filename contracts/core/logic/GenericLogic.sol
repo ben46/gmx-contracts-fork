@@ -2,12 +2,13 @@ pragma solidity ^0.8.12;
 // import "./DataTypes.sol";
 // import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
-import "./DataTypes.sol";
-import "./interfaces/IVaultPriceFeed.sol";
+import "../DataTypes.sol";
+import "../interfaces/IVaultPriceFeed.sol";
 
 library GenericLogic { 
     using SafeMath for uint256;  
 
+    // 一个账户, 一个品种, 一个方向, 对应一个position key(可以同时开多/开空)
     function getPositionKey(address _account, address _collateralToken, address _indexToken, bool _isLong) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked(
             _account,

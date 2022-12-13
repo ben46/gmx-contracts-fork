@@ -4,8 +4,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./interfaces/IVaultPriceFeed.sol";
 import "./interfaces/IVaultManager.sol";
 import "../tokens/interfaces/IUSDG.sol";
-import "./ValidationLogic.sol";
-import "./TokenLogic.sol";
+import "./logic/TokenLogic.sol";
 import "./VaultStorage.sol";
 import "./DataTypes.sol";
 import "../libraries/math/SafeCast.sol";
@@ -244,7 +243,7 @@ contract VaultManager is ReentrancyGuard, VaultStorage, IVaultManager {
         uint256 afterFeeAmount = _amount.mul(BASIS_POINTS_DIVISOR.sub(_feeBasisPoints)).div(BASIS_POINTS_DIVISOR);
         uint256 feeAmount = _amount.sub(afterFeeAmount);
         addrObjs[_token].feeReserves = addrObjs[_token].feeReserves.add(uint128(feeAmount));
-        emit CollectSwapFees(_token, tokenToUsdMin(_token, feeAmount), feeAmount);
+        emit CollectSwapFees(_token, _tokenToUsdMin(_token, feeAmount), feeAmount);
         return afterFeeAmount;
     }
     
