@@ -1,4 +1,4 @@
-// // SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: MIT
 
 // import "../libraries/math/SafeMath.sol";
 
@@ -6,12 +6,94 @@
 // import "./interfaces/IFastPriceEvents.sol";
 // import "../access/Governable.sol";
 
-// pragma solidity 0.6.12;
+pragma solidity ^0.8.12;
 
 // contract FastPriceFeed is ISecondaryPriceFeed, Governable {
-//     using SafeMath for uint256;
+contract FastPriceFeed{ 
 
-//     uint256 public constant PRICE_PRECISION = 10 ** 30;
+    uint256 constant BTC_MUL_MASK      = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF0; // prettier-ignore
+    uint256 constant BTC_MUL_START_BIT_POSITION = 0;
+
+    uint256 constant BTC_DECIMALS_MASK = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF00F; // prettier-ignore
+    uint256 constant BTC_DECIMALS_START_BIT_POSITION = 4;
+    uint256 constant BTC_PRICE_MASK    = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF000000000FFF; // prettier-ignore
+    uint256 constant BTC_PRICE_START_BIT_POSITION = 12;
+
+    uint256 constant ETH_MUL_MASK      = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF0FFFFFFFFFFFF; // prettier-ignore
+    uint256 constant ETH_MUL_START_BIT_POSITION = 0 + 12*4;
+
+    uint256 constant ETH_DECIMALS_MASK = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF00FFFFFFFFFFFFF; // prettier-ignore
+    uint256 constant ETH_DECIMALS_START_BIT_POSITION = 4 + 12*4;
+
+    uint256 constant ETH_PRICE_MASK    = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF000000000FFFFFFFFFFFFFFF; // prettier-ignore
+    uint256 constant ETH_PRICE_START_BIT_POSITION = 12 + 12*4; 
+
+    uint256 public constant PRICE_PRECISION = 10 ** 6;
+
+    uint256 public priceMap;
+
+    function setPricesMap1(uint256 _map1) external{
+        priceMap = _map1;
+    }
+
+    function setBTCPrice(uint256 _price)external {
+        priceMap = (priceMap & BTC_PRICE_MASK) | (_price << BTC_PRICE_START_BIT_POSITION);
+    } 
+
+    function setBTCDecimals(uint256 _decimals)external {
+        priceMap = (priceMap & BTC_DECIMALS_MASK) | (_decimals << BTC_DECIMALS_START_BIT_POSITION);
+    } 
+
+    function setBTCMul(bool _mul)external {
+        priceMap = (priceMap & BTC_MUL_MASK) | (uint256(_mul ? 1 : 0) << BTC_MUL_START_BIT_POSITION);
+    }
+
+    function getBTCPrice()public view returns(uint256){
+        return (priceMap & ~BTC_PRICE_MASK) >> BTC_PRICE_START_BIT_POSITION;
+    }
+
+    function getBTCDecimals()public view returns(uint256){
+        return (priceMap & ~BTC_DECIMALS_MASK) >> BTC_DECIMALS_START_BIT_POSITION;
+    }
+
+    function getBTCMul()public view returns(bool){
+        return ((priceMap & ~BTC_MUL_MASK) >> BTC_MUL_START_BIT_POSITION) & 1 != 0;
+    } 
+    
+    function setETHPrice(uint256 _price)external {
+        priceMap = (priceMap & ETH_PRICE_MASK) | (_price << ETH_PRICE_START_BIT_POSITION);
+    } 
+
+    function setETHDecimals(uint256 _decimals)external {
+        priceMap = (priceMap & ETH_DECIMALS_MASK) | (_decimals << ETH_DECIMALS_START_BIT_POSITION);
+    } 
+
+    function setETHMul(bool _mul)external {
+        priceMap = (priceMap & ETH_MUL_MASK) | (uint256(_mul ? 1 : 0) << ETH_MUL_START_BIT_POSITION);
+    }
+
+    function getETHPrice()public view returns(uint256){
+        return (priceMap & ~ETH_PRICE_MASK) >> ETH_PRICE_START_BIT_POSITION;
+    }
+
+    function getETHDecimals()public view returns(uint256){
+        return (priceMap & ~ETH_DECIMALS_MASK) >> ETH_DECIMALS_START_BIT_POSITION;
+    }
+
+    function getETHMul()public view returns(bool){
+        return ((priceMap & ~ETH_MUL_MASK) >> ETH_MUL_START_BIT_POSITION) & 1 != 0;
+    } 
+
+    function getBTCPriceWithDecimals()external view returns(uint256){
+        if(getBTCMul()) {
+            return getBTCPrice() * (10 ** getBTCDecimals()) * PRICE_PRECISION;
+        } else {
+            return getBTCPrice() / (10 ** getBTCDecimals())*  PRICE_PRECISION;
+        }
+    } 
+}
+    // using SafeMath for uint256;
+
 
 //     // uint256(~0) is 256 bits of 1s
 //     // shift the 1s by (256 - 32) to get (256 - 32) 0s followed by 32 1s
@@ -119,16 +201,16 @@
 //         tokenPrecisions = _tokenPrecisions;
 //     }
 
-//     function setPrices(address[] memory _tokens, uint256[] memory _prices) external onlyAdmin {
-//         for (uint256 i = 0; i < _tokens.length; i++) {
-//             address token = _tokens[i];
-//             prices[token] = _prices[i];
-//             if (fastPriceEvents != address(0)) {
-//               IFastPriceEvents(fastPriceEvents).emitPriceEvent(token, _prices[i]);
-//             }
-//         }
-//         lastUpdatedAt = block.timestamp;
-//     }
+    // function setPrices(address[] memory _tokens, uint256[] memory _prices) external onlyAdmin {
+    //     for (uint256 i = 0; i < _tokens.length; i++) {
+    //         address token = _tokens[i];
+    //         prices[token] = _prices[i];
+    //         if (fastPriceEvents != address(0)) {
+    //           IFastPriceEvents(fastPriceEvents).emitPriceEvent(token, _prices[i]);
+    //         }
+    //     }
+    //     lastUpdatedAt = block.timestamp;
+    // }
 
 //     function setCompactedPrices(uint256[] memory _priceBitArray) external onlyAdmin {
 //         lastUpdatedAt = block.timestamp;

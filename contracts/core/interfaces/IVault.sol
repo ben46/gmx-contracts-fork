@@ -40,7 +40,7 @@ interface IVault{
     //function stableSwapFeeBasisPoints() external view returns (uint256);
     // function marginFeeBasisPoints() external view returns (uint256);
 
-    // function allWhitelistedTokensLength() external view returns (uint256);
+    function allWhitelistedTokensLength() external view returns (uint256);
 
     function getUsdg() external view returns (address);
 

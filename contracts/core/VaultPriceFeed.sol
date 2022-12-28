@@ -266,7 +266,7 @@ contract VaultPriceFeed is IVaultPriceFeed {
         uint256 price = 0;
         uint80 roundId = priceFeed.latestRound();
 
-        for (uint80 i = 0; i < priceSampleSpace; i++) {
+        for (uint80 i = 0; i < priceSampleSpace; ) {
             if (roundId <= i) { break; }
             uint256 p;
 
@@ -282,16 +282,13 @@ contract VaultPriceFeed is IVaultPriceFeed {
 
             if (price == 0) {
                 price = p;
-                continue;
-            }
-
-            if (_maximise && p > price) {
+            } else if (_maximise && p > price) {
                 price = p;
-                continue;
-            }
-
-            if (!_maximise && p < price) {
+            } else if (!_maximise && p < price) {
                 price = p;
+            }
+            unchecked {
+                i++;
             }
         }
 

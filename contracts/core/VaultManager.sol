@@ -17,7 +17,6 @@ contract VaultManager is ReentrancyGuard, VaultStorage, IVaultManager {
     using TokenLogic for DataTypes.FundingData;
     
     function buyUSDG(address _token, address _receiver,uint256 tokenAmount) external    returns (uint256) {
-
         require(tokenAmount > 0, "17");
         fundingDatas[_token].updateCumulativeFundingRate(slot1.fundingInterval,
                                                         poolAmounts[_token],
@@ -29,21 +28,27 @@ contract VaultManager is ReentrancyGuard, VaultStorage, IVaultManager {
                                                         );
 
         uint256 price = IVaultPriceFeed(priceFeed).getPrice(_token, false, slot0.includeAmmPrice, true);
-
         uint256 usdgAmount = tokenAmount.mul(price).div(PRICE_PRECISION);
         usdgAmount = adjustForDecimals(usdgAmount, _token, usdg);
         require(usdgAmount > 0, "18");
 
         uint256 feeBasisPoints = getFeeBasisPoints(_token, usdgAmount, slot0.mintBurnFeeBasisPoints, slot0.taxBasisPoints, true);
+        // 0. 给手续费记账
         uint256 amountAfterFees = _collectSwapFees(_token, tokenAmount, feeBasisPoints);
         uint256 mintAmount = amountAfterFees.mul(price).div(PRICE_PRECISION);
         mintAmount = adjustForDecimals(mintAmount, _token, usdg);
 
+        /************************************************* */
+        // 这里才是关键
+        // 假设当前weth价值3000, 用户拿着glp来换usdg
+        // 1. 先给weth记账 usdgAmount[weth] += 3000 usd
         _increaseUsdgAmount(_token, mintAmount);
+        // 2. 给池子记账 poolAmount[weth] += 0.997
         _increasePoolAmount(_token, amountAfterFees);
 
         IUSDG(usdg).mint(_receiver, mintAmount);
- 
+        /************************************************* */
+
         emit BuyUSDG(_receiver, _token, tokenAmount, mintAmount, feeBasisPoints); 
         
         return mintAmount;

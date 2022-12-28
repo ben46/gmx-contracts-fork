@@ -43,19 +43,12 @@ contract VaultStorage   {
 
     // tokenBalances 仅用于确定_transferIn值
     mapping (address => uint256) internal  tokenBalances;
-
-      // usdgAmounts tracks the amount of USDG debt for each whitelisted token
-      // 跟踪每个白名单代币的USDG债务金额
-    mapping (address => uint256) internal  usdgAmounts;
-
-    // maxUsdgAmounts allows setting a max amount of USDG debt for a token
-    //允许为代币设置USDG债务的最大金额
-    mapping (address => uint256) internal  maxUsdgAmounts;    
+  
     // mapping (address => uint256) internal  poolAmounts;
 
     // reservedAmounts tracks the number of tokens reserved for open leverage positions
     //跟踪为未平仓杠杆仓位保留的代币数量
-    mapping (address => uint256) internal  reservedAmounts;//reserveAmounts记录的是开这个仓位的用户，该仓位的总价值兑换成collateral token的数量
+    mapping (address => uint256) internal  reservedAmounts;
 
     // bufferAmounts allows specification of an amount to exclude from swaps
     //允许指定从swaps中排除的金额
@@ -86,8 +79,28 @@ contract VaultStorage   {
     //跟踪可用于杠杆作用的接收令牌的数量
     // this is tracked separately from tokenBalances to exclude funds that are deposited as margin collateral
     //这与tokenBalance分开跟踪，以排除作为保证金抵押品存入的资金
+    // -------------------
+    // 假设用户拿着1weth来买glp
+    // 这里记账为 mapping(weth => 0.97)
      mapping (address => uint256)     internal poolAmounts;
 
+      // usdgAmounts tracks the amount of USDG debt for each whitelisted token
+      // 跟踪每个白名单代币的USDG债务金额
+      // -------------------
+    // 假设用户拿着1weth来买glp(weth 价值3000 usdg)
+    // 这里记账为 mapping(weth => 0.97)
+    // 还需要一个mapping记录vault里面 weth对应的usdg债务
+    // 所以这里记为 usdgAmounts mapping(weth => 3000)
+    // 还需要记录手续费 feereserves(weth => 0.003)
+    mapping (address => uint256) internal  usdgAmounts;
+
+    // maxUsdgAmounts allows setting a max amount of USDG debt for a token
+    //允许为代币设置USDG债务的最大金额
+    mapping (address => uint256) internal  maxUsdgAmounts;  
+    //-----------------------
+     mapping (address => uint256) internal _minPrice;
+    mapping (address => uint256) internal _maxPrice;
+    ////////////////////////////////////////
     function _transferIn(address _token) internal returns (uint256) {
         uint256 prevBalance = tokenBalances[_token]; 
         uint256 nextBalance = IERC20(_token).balanceOf(address(this));

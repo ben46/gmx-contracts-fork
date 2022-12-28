@@ -121,9 +121,9 @@ contract VaultReader {
 //         return vault.marginFeeBasisPoints();
 //     }
 
-//     function allWhitelistedTokensLength() external view returns (uint256) {
-//         return vault.allWhitelistedTokensLength();
-//     }
+    // function allWhitelistedTokensLength() external view returns (uint256) {
+    //     return vault.
+    // }
 //     function allWhitelistedTokens(uint256 _index) external view returns (address) {
 //         return vault.allWhitelistedTokens(_index);
 //     }
@@ -132,9 +132,11 @@ contract VaultReader {
                 return vault.getAddrObj(_token).whitelistedTokens;
 
     }
-//     function stableTokens(address _token) external view returns (bool) {
-//         return vault.stableTokens(_token);
-//     }
+    function stableTokens(address _token) external view returns (bool) {
+        // return vault.stableTokens(_token);
+                        return vault.getAddrObj(_token).stableTokens;
+
+    }
 //     function shortableTokens(address _token) external view returns (bool) {
 //         return vault.shortableTokens(_token);
 //     }
@@ -143,21 +145,22 @@ contract VaultReader {
     }
 
 
-//     function globalShortSizes(address _token) external view returns (uint256) {
-//         return vault.globalShortSizes(_token);
-//     }
-//     function globalShortAveragePrices(address _token) external view returns (uint256) {
-//         return vault.globalShortAveragePrices(_token);
-//     }
-//     function tokenDecimals(address _token) external view returns (uint256) {
-//         return vault.tokenDecimals(_token);
-//     }
-//     function tokenWeights(address _token) external view returns (uint256) {
-//         return vault.tokenWeights(_token);
-//     }
-//     function guaranteedUsd(address _token) external view returns (uint256) {
-//         return vault.guaranteedUsd(_token);
-//     }
+    function globalShortSizes(address _token) external view returns (uint256) {
+        return vault.getGlobalShortSizes(_token);
+    }
+    function globalShortAveragePrices(address _token) external view returns (uint256) {
+        return vault.getGlobalShortAveragePrices(_token);
+    }
+    function tokenDecimals(address _token) external view returns (uint256) {
+                return vault.getAddrObj(_token).tokenDecimals; 
+    }
+    function tokenWeights(address _token) external view returns (uint256) {
+        // return vault.tokenWeights(_token);
+                return vault.getAddrObj(_token).tokenWeights; 
+    }
+    function guaranteedUsd(address _token) external view returns (uint256) {
+        return vault.getGuaranteedUsd(_token);
+    }
     function poolAmounts(address _token) external view returns (uint256) {
         return vault.getPoolAmounts(_token);
     }

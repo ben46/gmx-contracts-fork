@@ -1,20 +1,20 @@
-// // SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: MIT
 
-// pragma solidity 0.6.12;
+pragma solidity ^0.8.12;
 
-// contract Governable {
-//     address public gov;
+contract Governable {
+    address public gov;
 
-//     constructor() public {
-//         gov = msg.sender;
-//     }
+    constructor()  {
+        gov = msg.sender;
+    }
 
-//     modifier onlyGov() {
-//         require(msg.sender == gov, "Governable: forbidden");
-//         _;
-//     }
+    modifier onlyGov() {
+        require(msg.sender == gov, "Governable: forbidden");
+        _;
+    }
 
-//     function setGov(address _gov) external onlyGov {
-//         gov = _gov;
-//     }
-// }
+    function setGov(address _gov) external onlyGov {
+        gov = _gov;
+    }
+}

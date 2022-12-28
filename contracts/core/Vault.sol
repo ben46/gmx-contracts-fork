@@ -109,10 +109,10 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault, ERC1967 {
     }
 
     function increasePosition(address _account, address _collateralToken, address _indexToken, uint256 _sizeDelta, bool _isLong) external override nonReentrant {
-        _validate(slot0.isLeverageEnabled, 28);
-        _validateGasPrice();
-        _validateRouter(_account);
-        _validateTokens(_collateralToken, _indexToken, _isLong);
+        _validate(slot0.isLeverageEnabled, 28); // 临时暂停杠杆交易?
+        _validateGasPrice(); // 防止三明治攻击
+        _validateRouter(_account); // 用户只能通过路由调用, 不可自己调用
+        _validateTokens(_collateralToken, _indexToken, _isLong); // 稳定币只能做空, 山寨币只能做多
         // 更新全局资金费率
         updateCumulativeFundingRate(_collateralToken); 
 
@@ -120,31 +120,35 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault, ERC1967 {
         DataTypes.Position storage position = positions[key];
 
         uint256 price = _isLong ? getMaxPrice(_indexToken) : getMinPrice(_indexToken);
-
+        if(_isLong){
+            _maxPrice[_indexToken] = price;
+        } else {
+            _minPrice[_indexToken] = price;
+        }
         if (position.size == 0) {
             position.averagePrice = price;
-        }
-
-        if (position.size > 0 && _sizeDelta > 0) {
+        } else if (position.size > 0 && _sizeDelta > 0) {
             position.averagePrice = getNextAveragePrice(_indexToken, position.size, position.averagePrice, _isLong, price, _sizeDelta, position.lastIncreasedTime);
         }
+        _minPrice[_collateralToken] = getMinPrice(_collateralToken);
 
-        // 收取margin 费用
-        uint256 fee = _collectMarginFees(_collateralToken, _sizeDelta, position.size, position.entryFundingRate);
-        // 计算转入了多少抵押物
+        // 收取 手续费+资金费
+        (uint256 fee, uint256 feeTokens) = _collectMarginFees(_collateralToken, _sizeDelta, position.size, position.entryFundingRate);
+
         uint256 collateralDelta = _transferIn(_collateralToken);
         // 计算转入的抵押物价值多少usd
         uint256 collateralDeltaUsd = _tokenToUsdMin(_collateralToken, collateralDelta);
+        {
+            // 给该仓位加上转入的抵押物
+            uint256 _collateral = position.collateral.add(collateralDeltaUsd);
+            _validate(_collateral >= fee, 29); 
+            _collateral =_collateral.sub(fee);        // 抵押物要扣除fee
+            position.collateral = _collateral; // 用户的担保
+        }
 
-        // 给该仓位加上
-        position.collateral = position.collateral.add(collateralDeltaUsd);
-        _validate(position.collateral >= fee, 29);//新仓位的抵押品价值要大于手续费，含资金费
-
-        // 抵押物要扣除fee
-        position.collateral = position.collateral.sub(fee);
-        position.entryFundingRate = fundingDatas[_collateralToken].cumulativeFundingRates;
-        position.size = position.size.add(_sizeDelta);
-        position.lastIncreasedTime = block.timestamp;
+        position.entryFundingRate = fundingDatas[_collateralToken].cumulativeFundingRates; // 资金费已收, 更新
+        position.size = position.size.add(_sizeDelta); // 用户的头寸
+        position.lastIncreasedTime = block.timestamp; // 刚加的头寸不能马上被清算?
 
         _validate(position.size > 0, 30);
         _validatePosition(position.size, position.collateral);
@@ -152,31 +156,58 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault, ERC1967 {
 
         // reserve tokens to pay profits on the position
         uint256 reserveDelta = usdToTokenMax(_collateralToken, _sizeDelta);
-        position.reserveAmount = position.reserveAmount.add(reserveDelta);
-        _increaseReservedAmount(_collateralToken, reserveDelta);
+        position.reserveAmount = position.reserveAmount.add(reserveDelta); // 用户总头寸?
+        _increaseReservedAmount(_collateralToken, reserveDelta); // 全局头寸?
 
         if (_isLong) {
             // guaranteedUsd stores the sum of (position.size - position.collateral) for all positions
             // if a fee is charged on the collateral then guaranteedUsd should be increased by that fee amount
             // since (position.size - position.collateral) would have increased by `fee`
-            _increaseGuaranteedUsd(_collateralToken, _sizeDelta.add(fee));
-            _decreaseGuaranteedUsd(_collateralToken, collateralDeltaUsd);
+            /**  guaranteedUsd存储所有头寸的（position.size-position.抵押品）总和，
+            如果抵押品收取费用，那么guaranteedUsd应增加该费用金额，
+            因为（position.size-position.抵押物）将增加“费用”`*/
+            // _increaseGuaranteedUsd(_collateralToken, _sizeDelta.add(fee)); // 增加全局的担保usd
+            // _decreaseGuaranteedUsd(_collateralToken, collateralDeltaUsd); // 借给用户了10倍杠杆
+            {
+                uint256 _tmp = guaranteedUsd[_collateralToken];
+                _tmp = _tmp.add(_sizeDelta);
+                _tmp = _tmp.add(fee);
+                _tmp = _tmp.sub(collateralDeltaUsd);
+                guaranteedUsd[_collateralToken] =_tmp;
+            }
+            emit IncreaseGuaranteedUsd(_collateralToken, _sizeDelta.add(fee));
+            emit IncreaseGuaranteedUsd(_collateralToken, collateralDeltaUsd);
             // treat the deposited collateral as part of the pool
-            _increasePoolAmount(_collateralToken, collateralDelta);
+            // 5. 散户拿着1eth, 开10倍多单, 可以理解为: 卖给vault, 因此poolamount[weth] += 1
+            _increasePoolAmount(_collateralToken, collateralDelta); // 用户上交的保证金
             // fees need to be deducted from the pool since fees are deducted from position.collateral
             // and collateral is treated as part of the pool
-            _decreasePoolAmount(_collateralToken, usdToTokenMin(_collateralToken, fee));
+            //费用需要从池中扣除，因为费用是从头寸中扣除的。抵押品和抵押品被视为池的一部分 
+            // 6. vault中的LP借钱给散户27000
+            _decreasePoolAmount(_collateralToken, feeTokens);
         } else {
-            if (globalShortSizes[_indexToken] == 0) {
-                globalShortAveragePrices[_indexToken] = price;
-            } else {
-                globalShortAveragePrices[_indexToken] = getNextGlobalShortAveragePrice(_indexToken, price, _sizeDelta);
-            }
-            globalShortSizes[_indexToken] = globalShortSizes[_indexToken].add(_sizeDelta);
+            // if (globalShortSizes[_indexToken] == 0) {
+            //     globalShortAveragePrices[_indexToken] = price;
+            // } else {
+            //     globalShortAveragePrices[_indexToken] = getNextGlobalShortAveragePrice(_indexToken, price, _sizeDelta);
+            // }
+            // // 全局做空的仓位
+            // globalShortSizes[_indexToken] = globalShortSizes[_indexToken].add(_sizeDelta);
         }
-    }
-
-   
+        
+        if (_maxPrice[_indexToken] > 0) {
+            _maxPrice[_indexToken] =0;
+        }  
+        if (_minPrice[_indexToken] > 0) {
+            _minPrice[_indexToken] =0;
+        }
+        if (_maxPrice[_collateralToken] > 0) {
+            _maxPrice[_collateralToken] =0;
+        }
+        if (_minPrice[_collateralToken] > 0) {
+            _minPrice[_collateralToken] =0;
+        }
+    } 
 
     function decreasePosition(address _account, address _collateralToken, address _indexToken, uint256 _collateralDelta, uint256 _sizeDelta, bool _isLong, address _receiver) external override nonReentrant returns (uint256) {
         _validateGasPrice(); // 防止三明治攻击
@@ -198,9 +229,11 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault, ERC1967 {
         {
         uint256 reserveDelta = position.reserveAmount.mul(_sizeDelta).div(position.size);
         position.reserveAmount = position.reserveAmount.sub(reserveDelta);
+        // 2.
         _decreaseReservedAmount(_collateralToken, reserveDelta);
         }
 
+        // 5.
         (uint256 usdOut, uint256 usdOutAfterFee) = _reduceCollateral(_account, _collateralToken, _indexToken, _collateralDelta, _sizeDelta, _isLong);
 
         if (position.size != _sizeDelta) {
@@ -211,6 +244,7 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault, ERC1967 {
             validateLiquidation(_account, _collateralToken, _indexToken, _isLong, true);
 
             if (_isLong) {
+                // 3.
                 _increaseGuaranteedUsd(_collateralToken, collateral.sub(position.collateral));
                 _decreaseGuaranteedUsd(_collateralToken, _sizeDelta);
             }
@@ -220,6 +254,7 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault, ERC1967 {
             emit UpdatePosition(key, position.size, position.collateral, position.averagePrice, position.entryFundingRate, position.reserveAmount, position.realisedPnl);
         } else {
             if (_isLong) {
+                //3.
                 _increaseGuaranteedUsd(_collateralToken, collateral);
                 _decreaseGuaranteedUsd(_collateralToken, _sizeDelta);
             }
@@ -232,11 +267,13 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault, ERC1967 {
         }
 
         if (!_isLong) {
+            //4.
             _decreaseGlobalShortSize(_indexToken, _sizeDelta);
         }
 
         if (usdOut > 0) {
             if (_isLong) {
+                //1.
                 _decreasePoolAmount(_collateralToken, usdToTokenMin(_collateralToken, usdOut));
             }
             uint256 amountOutAfterFees = usdToTokenMin(_collateralToken, usdOutAfterFee);
@@ -251,7 +288,7 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault, ERC1967 {
         bytes32 key =GenericLogic. getPositionKey(_account, _collateralToken, _indexToken, _isLong);
         DataTypes.Position storage position = positions[key];
 
-        uint256 fee = _collectMarginFees(_collateralToken, _sizeDelta, position.size, position.entryFundingRate);
+        (uint256 fee,) = _collectMarginFees(_collateralToken, _sizeDelta, position.size, position.entryFundingRate);
         bool hasProfit;
         uint256 adjustedDelta;
 
@@ -272,11 +309,12 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault, ERC1967 {
             // pay out realised profits from the pool amount for short positions
             if (!_isLong) {
                 uint256 tokenAmount = usdToTokenMin(_collateralToken, adjustedDelta);
-                _decreasePoolAmount(_collateralToken, tokenAmount);
+                _decreasePoolAmount(_collateralToken, tokenAmount);//
             }
         }
 
         if (!hasProfit && adjustedDelta > 0) {
+            // 亏钱了
             position.collateral = position.collateral.sub(adjustedDelta);
 
             // transfer realised losses to the pool for short positions
@@ -294,6 +332,7 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault, ERC1967 {
         // transfer _collateralDelta out
         if (_collateralDelta > 0) {
             usdOut = usdOut.add(_collateralDelta);
+            // 保证金
             position.collateral = position.collateral.sub(_collateralDelta);
         }
 
@@ -321,11 +360,6 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault, ERC1967 {
         return (usdOut, usdOutAfterFee);
     }
 
-    function getPositionDelta(address _account, address _collateralToken, address _indexToken, bool _isLong) internal view returns (bool, uint256) {
-        bytes32 key = GenericLogic.getPositionKey(_account, _collateralToken, _indexToken, _isLong);
-        DataTypes.Position memory position = positions[key];
-        return getDelta(_indexToken, position.size, position.averagePrice, _isLong, position.lastIncreasedTime);
-    }
 
     function liquidatePosition(address _account, address _collateralToken, 
                                 address _indexToken, bool _isLong, address _feeReceiver) external nonReentrant {
@@ -351,12 +385,16 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault, ERC1967 {
         }
 
         uint256 feeTokens = usdToTokenMin(_collateralToken, marginFees);
+        //1. 手续费
         addrObjs[_collateralToken].feeReserves = uint256(addrObjs[_collateralToken].feeReserves).add(feeTokens).toUInt128();
         emit CollectMarginFees(_collateralToken, marginFees, feeTokens);
 
+        //2. 用户用借来的钱购买的仓位, 要减少
         _decreaseReservedAmount(_collateralToken, position.reserveAmount);
         if (_isLong) {
+            //3. 借给散户的债务, 要清算
             _decreaseGuaranteedUsd(_collateralToken, position.size.sub(position.collateral));
+            //4. 用户池子里的担保物 
             _decreasePoolAmount(_collateralToken, usdToTokenMin(_collateralToken, marginFees));
         }
 
@@ -365,10 +403,12 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault, ERC1967 {
 
         if (!_isLong && marginFees < position.collateral) {
             uint256 remainingCollateral = position.collateral.sub(marginFees);
+            //5.用户清算完之后,多余的还给池子(可能后续被用户提走?)
             _increasePoolAmount(_collateralToken, usdToTokenMin(_collateralToken, remainingCollateral));
         }
 
         if (!_isLong) {
+            // 6. 减少全局空单仓位
             _decreaseGlobalShortSize(_indexToken, position.size);
         }
 
@@ -376,7 +416,9 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault, ERC1967 {
 
         // pay the fee receiver using the pool, we assume that in general the liquidated amount should be sufficient to cover
         // the liquidation fees
+        //7. 池子里扣掉清算费
         _decreasePoolAmount(_collateralToken, usdToTokenMin(_collateralToken, slot0.liquidationFeeUsd));
+        //8. 清算费转给清算人
         _transferOut(_collateralToken, usdToTokenMin(_collateralToken, slot0.liquidationFeeUsd), _feeReceiver);
 
         slot0.includeAmmPrice = true;
@@ -427,13 +469,19 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault, ERC1967 {
                                                         poolAmounts[_token],
                                                         slot1.stableFundingRateFactor,
                                                         slot1.fundingRateFactor,
-                                                        reservedAmounts[_token],
+                                                        reservedAmounts[_token], // 计算资金利用率, 从而得出资金费
                                                         addrObjs[_token].stableTokens,
                                                         _token); 
     }
   /*********************************************************
   工具方法
    *******************************************************/
+    function getPositionDelta(address _account, address _collateralToken, address _indexToken, bool _isLong) internal view returns (bool, uint256) {
+        bytes32 key = GenericLogic.getPositionKey(_account, _collateralToken, _indexToken, _isLong);
+        DataTypes.Position memory position = positions[key];
+        return getDelta(_indexToken, position.size, position.averagePrice, _isLong, position.lastIncreasedTime);
+    }
+
     // for longs: nextAveragePrice = (nextPrice * nextSize)/ (nextSize + delta)
     // for shorts: nextAveragePrice = (nextPrice * nextSize) / (nextSize - delta)
     function getNextAveragePrice(address _indexToken, uint256 _size, uint256 _averagePrice, 
@@ -449,10 +497,16 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault, ERC1967 {
         return _nextPrice.mul(nextSize).div(divisor);
     }
      function getMaxPrice(address _token) override  public  view returns (uint256) {
+         if(_maxPrice[_token] > 0) {
+            return _maxPrice[_token];
+        }
         return IVaultPriceFeed(priceFeed).getPrice(_token, true, slot0.includeAmmPrice, slot1.useSwapPricing);
     } 
 
     function getMinPrice(address _token) override public  view returns (uint256) {
+         if(_minPrice[_token] > 0) {
+            return _minPrice[_token];
+        } 
         return IVaultPriceFeed(priceFeed).getPrice(_token, false, slot0.includeAmmPrice, slot1.useSwapPricing);
     }
     function usdToTokenMax(address _token, uint256 _usdAmount) public view returns (uint256) {
@@ -473,11 +527,13 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault, ERC1967 {
      /*********************************************************
   只读方法
    *******************************************************/
+   // 可赎回的抵押?
     function getRedemptionCollateral(address _token) public view returns (uint256) {
         if (addrObjs[_token].stableTokens) {
             return poolAmounts[_token];
         }
         uint256 collateral = usdToTokenMin(_token, guaranteedUsd[_token]);
+        // ? + 池子内的总token - 被用户借走的
         return collateral.add(poolAmounts[_token]).sub(reservedAmounts[_token]);
     }
 
@@ -520,8 +576,12 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault, ERC1967 {
     function getUtilisation(address _token) public view returns (uint256) {
         uint256 poolAmount = poolAmounts[_token];
         if (poolAmount == 0) { return 0; }
-
+        // 用户借走的 * 精度 / 池子所有token
         return reservedAmounts[_token].mul(FUNDING_RATE_PRECISION).div(poolAmount);
+    }
+
+    function allWhitelistedTokensLength() external override view returns (uint256) {
+        return allWhitelistedTokens.length;
     }
 
     function getPositionLeverage(address _account, address _collateralToken, address _indexToken, bool _isLong) public view returns (uint256) {
@@ -602,22 +662,25 @@ contract Vault is ReentrancyGuard,  VaultStorage, IVault, ERC1967 {
         return _size.mul(fundingRate).div(FUNDING_RATE_PRECISION);
     }
 
-    function _collectMarginFees(address _token, uint256 _sizeDelta, uint256 _size, uint256 _entryFundingRate) private returns (uint256) {
+    /**
+    手续费  + 资金费
+    */
+    function _collectMarginFees(address _token, uint256 _sizeDelta, uint256 _size, uint256 _entryFundingRate) private returns (uint256,uint256) {
         // usd计价的fee是多少
+        // 手续费
         uint256 feeUsd = GenericLogic. getPositionFee(_sizeDelta,
                                                     BASIS_POINTS_DIVISOR,
                                                     slot1.marginFeeBasisPoints  );
 
-        // 资金费率
+        // 资金费
         uint256 fundingFee = getFundingFee(_token, _size, _entryFundingRate);
-        feeUsd = feeUsd.add(fundingFee);
+        feeUsd = feeUsd.add(fundingFee); // 手续费 + 资金费
 
         // 换算
         uint256 feeTokens = usdToTokenMin(_token, feeUsd);
-        //全局变量+fee
         addrObjs[_token].feeReserves = addrObjs[_token].feeReserves.add(uint128(feeTokens));
         emit CollectMarginFees(_token, feeUsd, feeTokens);
-        return feeUsd;
+        return (feeUsd,feeTokens);
     } 
    
     function _increaseReservedAmount(address _token, uint256 _amount) private {
